@@ -1,0 +1,18 @@
+name: EPaperNFC
+options:
+  bundleIdPrefix: lk.betech
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  EPaperNFC:
+    type: application
+    platform: iOS
+    sources: [EPaperNFC]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: lk.betech.epapernfc
+        INFOPLIST_FILE: EPaperNFC/Info.plist
+        CODE_SIGN_ENTITLEMENTS: EPaperNFC/EPaperNFC.entitlements
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
