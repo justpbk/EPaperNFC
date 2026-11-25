@@ -1,4 +1,4 @@
-# E-Paper NFC (iOS)
+# PIKO Studio (iOS)
 
 SwiftUI app for the Good Display **NFC-D1-0154** 1.54" battery-free NFC e-paper board
 (Fudan FMSH ESL chip) with a **152×152 Black / White / Yellow / Red** panel.
@@ -15,7 +15,8 @@ brew install xcodegen
 cd EPaperNFC && xcodegen
 open EPaperNFC.xcodeproj
 ```
-Option B – manual: New Xcode project (iOS App, SwiftUI, name EPaperNFC) → replace/add the 5 .swift files →
+Option B – manual: New Xcode project (iOS App, SwiftUI, name EPaperNFC) → replace/add the 5 .swift files and
+`Assets.xcassets` (app icon + logo) →
 Signing & Capabilities → + Near Field Communication Tag Reading →
 add `NFCReaderUsageDescription` and the `select-identifiers` array from `EPaperNFC/Info.plist`.
 

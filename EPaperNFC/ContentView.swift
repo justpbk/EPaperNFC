@@ -3,17 +3,30 @@ import PhotosUI
 
 // MARK: - Theme
 
+/// PIKO Studio colours, sampled from the app icon.
 enum Theme {
+    static let orange   = Color(red: 0.996, green: 0.584, blue: 0.408)   // #FE9568
+    static let pink     = Color(red: 0.996, green: 0.392, blue: 0.725)   // #FE64B9
+    static let magenta  = Color(red: 0.886, green: 0.129, blue: 0.953)   // #E221F3
+    static let violet   = Color(red: 0.502, green: 0.102, blue: 0.980)   // #801AFA
+    static let blue     = Color(red: 0.345, green: 0.365, blue: 0.988)   // #585DFC
+    static let sky      = Color(red: 0.482, green: 0.812, blue: 0.980)   // #7BCFFA
+    static let sparkle  = Color(red: 1.000, green: 0.890, blue: 0.129)   // #FFE321
+    static let lavender = Color(red: 0.992, green: 0.929, blue: 0.992)   // #FDEDFD
+    static let night    = Color(red: 0.024, green: 0.004, blue: 0.118)   // #06011E
+
+    /// Panel colours for the e-paper swatches.
+    static let paperYellow = Color(red: 0.94, green: 0.78, blue: 0.0)
+    static let paperRed = Color(red: 0.85, green: 0.12, blue: 0.12)
+
     static let background = LinearGradient(
-        colors: [Color(red: 0.10, green: 0.07, blue: 0.20), Color(red: 0.03, green: 0.03, blue: 0.07)],
+        colors: [Color(red: 0.165, green: 0.039, blue: 0.369), night],   // #2A0A5E → #06011E
         startPoint: .top, endPoint: .bottom)
     static let accent = LinearGradient(
-        colors: [Color(red: 1.00, green: 0.84, blue: 0.15), Color(red: 0.98, green: 0.30, blue: 0.22)],
+        colors: [orange, pink, magenta, violet],
         startPoint: .leading, endPoint: .trailing)
-    static let yellow = Color(red: 0.94, green: 0.78, blue: 0.0)
-    static let red = Color(red: 0.85, green: 0.12, blue: 0.12)
-    static let card = Color.white.opacity(0.07)
-    static let stroke = Color.white.opacity(0.12)
+    static let card = lavender.opacity(0.08)
+    static let stroke = lavender.opacity(0.16)
 }
 
 struct PressableStyle: ButtonStyle {
@@ -77,18 +90,25 @@ struct ContentView: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("E-Paper")
-                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+        HStack(alignment: .center, spacing: 12) {
+            Image("Logo")
+                .resizable()
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(color: Theme.magenta.opacity(0.6), radius: 10)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("PIKO Studio")
+                    .font(.system(size: 28, weight: .heavy, design: .rounded))
                     .foregroundStyle(Theme.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Text("1.54″ · 152 × 152 · 4 colours")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.lavender.opacity(0.65))
             }
-            Spacer()
+            Spacer(minLength: 0)
             HStack(spacing: -6) {
-                ForEach([Color.black, .white, Theme.yellow, Theme.red], id: \.self) { c in
+                ForEach([Color.black, .white, Theme.paperYellow, Theme.paperRed], id: \.self) { c in
                     Circle().fill(c)
                         .frame(width: 22, height: 22)
                         .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 1.5))
@@ -193,18 +213,19 @@ struct ContentView: View {
             Button(action: write) {
                 HStack(spacing: 10) {
                     if nfc.busy {
-                        ProgressView().tint(.black)
+                        ProgressView().tint(.white)
                     } else {
                         Image(systemName: "wave.3.right")
                     }
                     Text(nfc.busy ? "Updating…" : "Update Tag")
                 }
                 .font(.title3.weight(.bold))
-                .foregroundStyle(.black)
+                .foregroundStyle(.white)
+                .shadow(color: Theme.violet.opacity(0.5), radius: 2, y: 1)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 18)
                 .background(Theme.accent, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .shadow(color: Theme.red.opacity(0.45), radius: 18, y: 8)
+                .shadow(color: Theme.magenta.opacity(0.5), radius: 18, y: 8)
             }
             .buttonStyle(PressableStyle())
             .disabled(source == nil || nfc.busy)
@@ -279,6 +300,7 @@ struct ContentView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { showAdvanced = false } }
             }
         }
+        .tint(Theme.magenta)
     }
 
     // MARK: Actions
@@ -356,7 +378,7 @@ struct AdjustSheet: View {
                             .scaledToFit()
                             .frame(width: 150, height: 150)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .shadow(color: Theme.yellow.opacity(0.3), radius: 12)
+                            .shadow(color: Theme.magenta.opacity(0.45), radius: 12)
                     }
 
                     VStack(spacing: 16) {
@@ -366,7 +388,7 @@ struct AdjustSheet: View {
                         Toggle(isOn: $settings.dither) {
                             Label("Dithering", systemImage: "circle.grid.3x3.fill")
                         }
-                        .tint(Theme.red)
+                        .tint(Theme.magenta)
                     }
                     .padding(18)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -378,7 +400,7 @@ struct AdjustSheet: View {
                         Label("Reset", systemImage: "arrow.counterclockwise")
                             .font(.subheadline.weight(.semibold))
                     }
-                    .tint(Theme.yellow)
+                    .tint(Theme.sparkle)
                 }
                 .padding(20)
             }
@@ -389,6 +411,7 @@ struct AdjustSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
+        .tint(Theme.pink)
         .preferredColorScheme(.dark)
     }
 
@@ -401,7 +424,7 @@ struct AdjustSheet: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.white.opacity(0.6))
             }
-            Slider(value: value, in: range).tint(Theme.yellow)
+            Slider(value: value, in: range).tint(Theme.pink)
         }
     }
 }

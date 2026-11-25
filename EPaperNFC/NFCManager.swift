@@ -19,7 +19,7 @@ final class NFCManager: NSObject, ObservableObject, NFCTagReaderSessionDelegate 
         guard NFCTagReaderSession.readingAvailable else { append("NFC not available on this device"); return }
         self.job = job
         session = NFCTagReaderSession(pollingOption: .iso14443, delegate: self, queue: nil)
-        session?.alertMessage = "Hold the top of your iPhone on the e-paper board and keep still."
+        session?.alertMessage = "PIKO Studio: hold the top of your iPhone on the e-paper board and keep still."
         session?.begin()
         busy = true
     }
