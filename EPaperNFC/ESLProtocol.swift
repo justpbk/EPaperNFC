@@ -249,7 +249,11 @@ final class ESLClient {
             do {
                 (d, sw) = try await wrapper.send(apdu)
             } catch ESLError.status(0x6D00) {
-                // Manual section 6, note 3: some commands are refused inside NDEF -> send them raw.
+                (d, sw) = ([], 0x6D00)
+            }
+            // Manual section 6, note 3: some commands are refused inside NDEF -> send them raw.
+            // The refusal can come from the NDEF write itself or as the SW inside the result record.
+            if sw == 0x6D00 {
                 log("\(apdu.prefix(2).hex) refused in NDEF mode, retrying as raw APDU")
                 (d, sw) = try await raw(apdu)
             }
