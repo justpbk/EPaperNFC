@@ -6,7 +6,7 @@ typealias NFCJob = (ESLClient, @escaping (String) -> Void) async throws -> Strin
 final class NFCManager: NSObject, ObservableObject, NFCTagReaderSessionDelegate {
     @Published var log: [String] = []
     @Published var busy = false
-    var wrapNDEF = true
+    var forceNDEF = false
 
     private var session: NFCTagReaderSession?
     private var job: NFCJob?
@@ -62,7 +62,7 @@ final class NFCManager: NSObject, ObservableObject, NFCTagReaderSessionDelegate 
         }
 
         guard let job else { session.invalidate(); return }
-        let client = ESLClient(raw: raw, wrapNDEF: wrapNDEF, log: { [weak self] in self?.append($0) })
+        let client = ESLClient(raw: raw, forceNDEF: forceNDEF, log: { [weak self] in self?.append($0) })
 
         Task {
             do {

@@ -30,10 +30,14 @@ enum ESL {
         apdu(0xF0, 0xD2, index, packet, data: chunk)
     }
 
-    /// 7.7 Redraw Screen: P1 = screen power-on delay (x100 ms; must be > 0 on a battery-free board,
-    /// P1 = 0 means "switch on external battery"). P2 bit7 = 1 -> return immediately, bits6-0 = image index.
-    static func redraw(index: UInt8, immediate: Bool, powerOnDelay: UInt8 = 0x01) -> [UInt8] {
-        apdu(0xF0, 0xD4, powerOnDelay & 0x7F, (immediate ? 0x80 : 0x00) | (index & 0x7F), le: 0x00)
+    /// 7.7 Redraw Screen.
+    /// P1 bit7 = 0 -> check that a screen is connected first (fails with 68C6 if the check fails),
+    ///          1 -> skip the check.
+    /// P1 bits6-0 = screen power-on delay x100 ms (must be > 0 on a battery-free board; 0 = external battery).
+    /// P2 bit7 = 1 -> return immediately (poll 'DE'), bits6-0 = image index.
+    static func redraw(index: UInt8, immediate: Bool, detectScreen: Bool = false, powerOnDelay: UInt8 = 0x01) -> [UInt8] {
+        apdu(0xF0, 0xD4, (detectScreen ? 0x00 : 0x80) | (powerOnDelay & 0x7F),
+             (immediate ? 0x80 : 0x00) | (index & 0x7F), le: 0x00)
     }
 }
 
@@ -75,7 +79,7 @@ enum ESLError: LocalizedError {
         0x6581: "EEPROM write failed",
         0x6700: "Lc/Le error",
         0x6781: "packet total length wrong",
-        0x68C6: "screen reset failed / panel not detected – check the panel cable and that its custom DB driver flow is installed",
+        0x68C6: "screen reset failed / panel not detected – check the panel cable, or turn off \"Check panel before refresh\"",
         0x68CA: "low voltage – hold the phone still and closer",
         0x68CB: "screen refresh timeout",
         0x6982: "security status not satisfied – verify PIN first",
@@ -136,12 +140,15 @@ final class NDEFWrapper {
         // Writing the length triggers execution
         _ = try await ok([0x00, 0xD6, 0x00, 0x00, 0x02, UInt8(rec.count >> 8), UInt8(rec.count & 0xFF)])
 
-        // Read result
-        let lb = try await ok([0x00, 0xB0, 0x00, 0x00, 0x02])
-        guard lb.count == 2 else { throw ESLError.badResponse }
-        let len = Int(lb[0]) << 8 | Int(lb[1])
-        var resp: [UInt8] = []
-        var o = 2
+        // Read result. One read gets NLEN plus a short result (most replies are a 6-byte record);
+        // longer results are read in further chunks. Falls back to a 2-byte length read.
+        var first: [UInt8]
+        do { first = try await ok([0x00, 0xB0, 0x00, 0x00, 0x20]) }
+        catch ESLError.status(_) { first = try await ok([0x00, 0xB0, 0x00, 0x00, 0x02]) }
+        guard first.count >= 2 else { throw ESLError.badResponse }
+        let len = Int(first[0]) << 8 | Int(first[1])
+        var resp = Array(first.dropFirst(2).prefix(len))
+        var o = 2 + resp.count
         while resp.count < len {
             let n = min(250, len - resp.count)
             let d = try await ok([0x00, 0xB0, UInt8(o >> 8), UInt8(o & 0xFF), UInt8(n)])
@@ -233,32 +240,56 @@ struct TagConfig {
 
 final class ESLClient {
     private let raw: RawSend
-    private let wrapper: NDEFWrapper?
+    private let wrapper: NDEFWrapper
+    /// nil = not decided yet: the first command probes whether the tag accepts direct APDUs.
+    private var useNDEF: Bool?
     let log: (String) -> Void
 
-    init(raw: @escaping RawSend, wrapNDEF: Bool, log: @escaping (String) -> Void) {
+    /// forceNDEF = always use the iOS NDEF transport (manual section 6, ~5 NFC exchanges per command).
+    /// Otherwise direct APDUs (1 exchange per command) are tried first, with NDEF as the fallback.
+    init(raw: @escaping RawSend, forceNDEF: Bool, log: @escaping (String) -> Void) {
         self.raw = raw
-        self.wrapper = wrapNDEF ? NDEFWrapper(raw: raw) : nil
+        self.wrapper = NDEFWrapper(raw: raw)
+        self.useNDEF = forceNDEF ? true : nil
         self.log = log
+    }
+
+    private func chooseTransport() async {
+        var direct = false
+        if let r = try? await raw(ESL.configInfo) { direct = r.1 == 0x9000 }
+        useNDEF = !direct
+        log(direct ? "Using direct mode (fast)" : "Using iOS NDEF mode")
+    }
+
+    private func sendNDEF(_ apdu: [UInt8]) async throws -> ([UInt8], UInt16) {
+        var d: [UInt8] = [], sw: UInt16 = 0
+        do {
+            (d, sw) = try await wrapper.send(apdu)
+        } catch ESLError.status(0x6D00) {
+            (d, sw) = ([], 0x6D00)
+        }
+        // Manual section 6, note 3: some commands are refused inside NDEF -> send them raw.
+        // The refusal can come from the NDEF write itself or as the SW inside the result record.
+        if sw == 0x6D00 {
+            log("\(apdu.prefix(2).hex) refused in NDEF mode, retrying as raw APDU")
+            (d, sw) = try await raw(apdu)
+        }
+        return (d, sw)
     }
 
     @discardableResult
     func send(_ apdu: [UInt8], quiet: Bool = false) async throws -> [UInt8] {
-        let d: [UInt8], sw: UInt16
-        if let wrapper {
-            do {
-                (d, sw) = try await wrapper.send(apdu)
-            } catch ESLError.status(0x6D00) {
-                (d, sw) = ([], 0x6D00)
-            }
-            // Manual section 6, note 3: some commands are refused inside NDEF -> send them raw.
-            // The refusal can come from the NDEF write itself or as the SW inside the result record.
-            if sw == 0x6D00 {
-                log("\(apdu.prefix(2).hex) refused in NDEF mode, retrying as raw APDU")
-                (d, sw) = try await raw(apdu)
-            }
+        if useNDEF == nil { await chooseTransport() }
+        var d: [UInt8] = [], sw: UInt16 = 0
+        if useNDEF == true {
+            (d, sw) = try await sendNDEF(apdu)
         } else {
             (d, sw) = try await raw(apdu)
+            if sw == 0x6D00 || sw == 0x6E00 {
+                log("\(apdu.prefix(2).hex) not accepted in direct mode, switching to iOS NDEF mode")
+                useNDEF = true
+                (d, sw) = try await sendNDEF(apdu)
+            }
         }
         if !quiet { log("→ \(apdu.prefix(5).hex)  ← \(d.hex) \(String(format: "%04X", sw))") }
         guard sw == 0x9000 else { throw ESLError.status(sw) }
@@ -270,27 +301,37 @@ final class ESLClient {
     }
 
     /// Upload 1 plane (B/W) or 2 planes (B/W + colour) to index 0/1, refresh, wait for BUSY low.
-    func writeImage(planes: [[UInt8]], progress: @escaping (Int) -> Void) async throws {
+    func writeImage(planes: [[UInt8]], detectScreen: Bool = false,
+                    status: @escaping (String) -> Void) async throws {
         let total = planes.reduce(0) { $0 + ($1.count + 249) / 250 }
         var done = 0
+        let t0 = Date()
         for (index, plane) in planes.enumerated() {
             var packet = 0
             for start in stride(from: 0, to: plane.count, by: 250) {
                 let chunk = Array(plane[start..<min(start + 250, plane.count)])
                 try await send(ESL.loadImage(index: UInt8(index), packet: UInt8(packet), chunk: chunk), quiet: true)
                 packet += 1; done += 1
-                progress(done * 100 / max(total, 1))
+                status("Sending… \(done * 100 / max(total, 1))%")
             }
         }
-        log("Image uploaded (\(done) packets). Refreshing…")
+        log(String(format: "Image uploaded (%d packets) in %.1f s. Refreshing…", done, Date().timeIntervalSince(t0)))
+        status("Refreshing display… keep still")
+
         // Battery-free board: the phone's RF field powers the refresh, so use immediate mode
         // and keep the session alive by polling BUSY ('DE') until the panel is idle.
-        try await send(ESL.redraw(index: 0, immediate: true))
-        let deadline = Date().addingTimeInterval(40)
+        let t1 = Date()
+        try await send(ESL.redraw(index: 0, immediate: true, detectScreen: detectScreen))
+        // A fixed driver times out after 30 s (manual 4.1); iOS ends the NFC session at 60 s.
+        let deadline = t1.addingTimeInterval(35)
         while Date() < deadline {
-            try await Task.sleep(nanoseconds: 500_000_000)
+            try await Task.sleep(nanoseconds: 300_000_000)
             let r = try await send(ESL.busyStatus, quiet: true)
-            if r.first == 0x00 { log("Refresh complete"); return }
+            if r.first == 0x00 {
+                log(String(format: "Refresh complete in %.1f s (total %.1f s)",
+                           Date().timeIntervalSince(t1), Date().timeIntervalSince(t0)))
+                return
+            }
         }
         throw ESLError.timeout
     }

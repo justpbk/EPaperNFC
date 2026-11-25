@@ -36,9 +36,10 @@ struct ContentView: View {
     @State private var showAdvanced = false
 
     // Advanced
-    @State private var wrapNDEF = true
+    @State private var forceNDEF = false
     @State private var usePIN = false
     @State private var pin = "1122334455"
+    @State private var detectScreen = false
     @State private var tagInfo: String?
 
     var body: some View {
@@ -246,7 +247,7 @@ struct ContentView: View {
                 }
 
                 Section {
-                    Toggle("NDEF-wrapped commands (iOS mode)", isOn: $wrapNDEF)
+                    Toggle("Always use iOS NDEF mode (slower)", isOn: $forceNDEF)
                     Toggle("Verify PIN first", isOn: $usePIN)
                     if usePIN {
                         TextField("PIN (hex)", text: $pin)
@@ -254,10 +255,12 @@ struct ContentView: View {
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
                     }
+                    Toggle("Check panel before refresh", isOn: $detectScreen)
                 } header: {
                     Text("Connection")
                 } footer: {
-                    Text("Turn off NDEF mode only if writing fails. Enable PIN if you get error 6982 (default 1122334455).")
+                    Text("The app uses fast direct mode when the tag allows it and switches to NDEF mode by itself. Enable PIN if you get error 6982 (default 1122334455). "
+                         + "Leave “Check panel” off if you get error 68C6.")
                 }
 
                 Section("Log") {
@@ -297,31 +300,38 @@ struct ContentView: View {
     private func write() {
         guard let src = source, let pinBytes = pinToSend() else { return }
         let s = settings
-        nfc.wrapNDEF = wrapNDEF
+        let detect = detectScreen
+        nfc.forceNDEF = forceNDEF
         nfc.run { client, status in
             if !pinBytes.isEmpty { try await client.send(ESL.verifyPIN(pinBytes)) }
 
+            var codes = Panel.defaultCodes
             if let cfg = try? await client.readConfig() {
                 client.log("Tag config: \(cfg.summary)")
                 if !cfg.matchesPanel { client.log("Warning: tag is not set up as a 152×152 4-colour panel") }
+                if let c = cfg.colorCodes { codes = c }
             }
+            client.log("Colour codes: \(Panel.describe(codes))")
 
             guard let p = ImageProcessor.render(src, s) else { throw ESLError.message("Image processing failed") }
-            let plane = ImageProcessor.pack(p, rotation: s.rotation, mirror: s.mirror)
-            try await client.writeImage(planes: [plane]) { pct in status("Sending… \(pct)%") }
+            let plane = ImageProcessor.pack(p, rotation: s.rotation, mirror: s.mirror, codes: codes)
+            try await client.writeImage(planes: [plane], detectScreen: detect, status: status)
             return "Done ✓"
         }
     }
 
     private func readInfo() {
         guard let pinBytes = pinToSend() else { return }
-        nfc.wrapNDEF = wrapNDEF
+        nfc.forceNDEF = forceNDEF
         nfc.run { client, _ in
             if !pinBytes.isEmpty { try await client.send(ESL.verifyPIN(pinBytes)) }
             let cfg = try await client.readConfig()
             client.log("Config TLV  \(cfg.rawDescription)")
+            let codes = cfg.colorCodes.map { "Colour codes from tag: \(Panel.describe($0))" }
+                ?? "No colour codes on tag – using \(Panel.describe(Panel.defaultCodes))"
             let info = cfg.summary + (cfg.matchesPanel ? "\n✓ Matches this app (152×152, 4 colours)"
                                                        : "\n⚠︎ Not a 152×152 4-colour config")
+                + "\n" + codes
             await MainActor.run { tagInfo = info }
             return cfg.summary
         }

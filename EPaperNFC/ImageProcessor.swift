@@ -5,16 +5,44 @@ import simd
 /// Good Display 1.54" 152×152 Black / White / Yellow / Red e-paper panel.
 enum Panel {
     static let size = 152
-    /// Palette index = the panel's 2-bit pixel code: 00 black, 01 white, 10 yellow, 11 red.
-    /// If yellow and red come out swapped on the panel, swap the last two entries.
+    /// Panel colours in palette order: black, white, yellow, red.
     static let palette: [SIMD3<Float>] = [
         SIMD3(0, 0, 0), SIMD3(255, 255, 255), SIMD3(240, 200, 0), SIMD3(200, 0, 0),
     ]
+    /// 2-bit pixel code sent for each palette colour when the tag stores none:
+    /// 00 black, 01 white, 10 yellow, 11 red. If yellow and red come out swapped, use [0, 1, 3, 2].
+    static let defaultCodes: [UInt8] = [0, 1, 2, 3]
+
+    static func describe(_ codes: [UInt8]) -> String {
+        zip(["black", "white", "yellow", "red"], codes)
+            .map { "\($0) \(String($1, radix: 2).leftPad(2))" }.joined(separator: ", ")
+    }
+}
+
+extension String {
+    func leftPad(_ n: Int) -> String { String(repeating: "0", count: max(0, n - count)) + self }
 }
 
 extension TagConfig {
-    /// 4-colour panels report X in bits at 2 bpp, so a 152×152 panel reads as 304×152.
+    /// The manual gives X in bits per row, so a 152×152 panel at 2 bpp (4 colours) reads as 304×152.
     var matchesPanel: Bool { width == Panel.size * 2 && height == Panel.size }
+
+    /// Colour → pixel code table stored on the tag (D1 response tag 'A1', set by 'DA 0001', manual 7.9.3.2),
+    /// in palette order. nil unless all four colours are present with distinct codes.
+    /// 'A1' value: [scan mode, images|colours, entry…]; entry bits7-5 = colour (000 black, 001 white,
+    /// 010 red, 011 yellow), bits4-3 = pixel code.
+    var colorCodes: [UInt8]? {
+        guard let v = entries.first(where: { $0.tag == 0xA1 })?.value, v.count >= 6 else { return nil }
+        let paletteIndex: [UInt8: Int] = [0: 0, 1: 1, 3: 2, 2: 3]
+        var codes = [UInt8?](repeating: nil, count: 4)
+        for e in v.dropFirst(2) {
+            guard let i = paletteIndex[e >> 5], codes[i] == nil else { continue }
+            codes[i] = (e >> 3) & 0x03
+        }
+        let found = codes.compactMap { $0 }
+        guard found.count == 4, Set(found).count == 4 else { return nil }
+        return found
+    }
 }
 
 struct ImageSettings: Equatable {
@@ -28,7 +56,7 @@ struct ImageSettings: Equatable {
 
 struct Processed {
     let preview: UIImage
-    let indices: [UInt8]            // palette index per pixel (= 2-bit panel code)
+    let indices: [UInt8]            // palette index per pixel (0 black, 1 white, 2 yellow, 3 red)
 }
 
 enum ImageProcessor {
@@ -115,7 +143,9 @@ enum ImageProcessor {
     }
 
     /// Pack to one 2-bpp plane, row-major, 4 pixels per byte, first pixel in bits 7-6.
-    static func pack(_ p: Processed, rotation: Int, mirror: Bool) -> [UInt8] {
+    /// `codes[i]` is the 2-bit pixel code for palette colour i.
+    static func pack(_ p: Processed, rotation: Int, mirror: Bool,
+                     codes: [UInt8] = Panel.defaultCodes) -> [UInt8] {
         let n = Panel.size
         var idx = p.indices
         if mirror {
@@ -134,7 +164,7 @@ enum ImageProcessor {
         for y in 0..<n {
             for x in 0..<n {
                 let shift = UInt8(6 - (x % 4) * 2)
-                plane[y * bpr + x / 4] |= (idx[y * n + x] & 0x03) << shift
+                plane[y * bpr + x / 4] |= (codes[Int(idx[y * n + x])] & 0x03) << shift
             }
         }
         return plane
