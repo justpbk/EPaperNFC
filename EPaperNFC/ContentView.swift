@@ -293,6 +293,10 @@ struct ContentView: View {
                     }
                     if !nfc.log.isEmpty { Button("Clear log", role: .destructive) { nfc.log.removeAll() } }
                 }
+
+                Section("About") {
+                    LabeledContent("PIKO Studio", value: appVersion)
+                }
             }
             .navigationTitle("Advanced")
             .navigationBarTitleDisplayMode(.inline)
@@ -301,6 +305,13 @@ struct ContentView: View {
             }
         }
         .tint(Theme.magenta)
+    }
+
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = info?["CFBundleVersion"] as? String ?? "?"
+        return "Version \(v) (\(b))"
     }
 
     // MARK: Actions

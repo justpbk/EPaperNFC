@@ -22,6 +22,17 @@ add `NFCReaderUsageDescription` and the `select-identifiers` array from `EPaperN
 
 Set your Team under Signing, run on the phone (NFC does not work in the Simulator).
 
+## Release to TestFlight
+Build from the repo each time; don't copy files into a separate Xcode project.
+1. `git pull` to get the latest commit.
+2. In `project.yml`, raise `CURRENT_PROJECT_VERSION` above the last uploaded build
+   (and `MARKETING_VERSION` for a new version).
+3. `xcodegen` to regenerate `EPaperNFC.xcodeproj`. This picks up new files such as `Assets.xcassets`.
+4. Xcode → Product → Archive → Distribute App → TestFlight & App Store, and wait for the build to
+   finish processing in App Store Connect.
+5. Testers install it from the TestFlight app. Advanced → About shows the installed
+   version and build, which should match what was uploaded.
+
 ## Use
 1. Tap the preview to choose a photo.
 2. **Adjust** → brightness, contrast, zoom, dithering.
